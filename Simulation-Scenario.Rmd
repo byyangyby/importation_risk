@@ -1,0 +1,1737 @@
+---
+title: "Simulaions on Scenarios"
+author: "Li Mingwei"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+mainfont: Times New Roman
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggsci)
+library(wesanderson)
+library(scales)
+library(lubridate)
+library(ggpubr)
+library(Genshinpalette)
+library(flextable)
+library(officer)
+library(scales)
+library(gridExtra)
+library(patchwork)
+```
+
+## R Markdown
+
+Basic Parameter Settings
+
+```{r}
+n_sim = 100
+burnin = 3000
+iter = 10000
+et = "uniform"
+inf_ref = 23
+T_max=14
+TimeFrame = 202008:202112
+# Data from https://www.news.gov.hk/eng/2022/06/20220616/20220616_220121_464.html
+max_cap = 23000*2*2
+```
+
+```{r linear distribution of exposure time,echo=FALSE}
+linearfunctionP<-function(x,a,b, direction){
+  if(direction == "decreasing"){
+    p = (seq(a,b,length.out=x))/sum(seq(a,b,length.out=x))
+  }
+  
+  if(direction == "increasing"){
+    p = (b+1-seq(a,b,length.out=x))/sum(seq(a,b,length.out=x))
+  }
+  
+  if(direction == "uniform"){
+    p = rep(1/T_max, T_max)
+  }
+  
+  return(p)
+  
+}
+```
+
+```{r Get False Test Negative,echo=FALSE}
+getFTN = function(p_tn_vec, infectious_period){
+  
+  ftn = tibble(p_tn_vec) %>%
+    select(days_since_exposure, fnr_med) %>%
+    expand(days_since_exposure = -50:35) %>%
+    left_join(p_tn_vec) 
+  
+  ftn = ftn[!duplicated(ftn), ] %>%
+    mutate(fnr_med = ifelse(is.na(fnr_med),
+                            1,
+                            fnr_med)) %>%
+    mutate(cum_prob_infectious = ifelse(is.na(cum_prob_infectious),
+                                        0,
+                                        cum_prob_infectious)) %>%
+    mutate(days_since_exposure_pre_departure = days_since_exposure,
+           days_since_exposure_test = days_since_exposure,
+           days_since_exposure_test_2 = days_since_exposure,
+           days_since_exposure_test_3 = days_since_exposure,
+           days_since_exposure_test_4 = days_since_exposure,
+           days_since_exposure_q3 = days_since_exposure,
+           days_since_exposure_q7 = days_since_exposure,
+           days_since_exposure_q14 = days_since_exposure,
+           days_since_exposure_q21 = days_since_exposure)
+  
+  ftn}
+```
+
+Scenario B: observed level of travel volume, observed quarantine, observed test
+
+```{r Sample Infections-observed quarantine, observed tests,echo=FALSE}
+sampleInfection = function(n, p_i, n_inf,T_max, ftn, incubation_period, inf_ref, direction,time){
+
+  if(n_inf > 0 ){
+    
+    
+    exp_prob = linearfunctionP(x=T_max, a = 1, b = T_max, direction = direction)
+    t = sample(1:T_max,n_inf,replace=TRUE,prob = exp_prob)
+    #t = sample(1:T_max, n_inf, replace = TRUE)
+    
+    # generate incubation period (days since exposure)
+    peak_day = sample(incubation_period$days_since_exposure[1:20],
+                      n_inf,
+                      replace = TRUE,
+                      prob = incubation_period$prob_symptom_onset[1:20])
+    
+    # generate symptomatic
+    p_asymp = rnorm(1,
+                    mean = 0.1954023,
+                    sd = 0.05046811)
+    while (p_asymp >1 || p_asymp <0) {
+      p_asymp = rnorm(1,
+                      mean = 0.1954023,
+                      sd = 0.05046811)}
+    asympt = rbinom(n = n_inf, size = 1, p = p_asymp)
+    
+    n_asympt = sum(asympt)
+    n_sympt = n_inf - n_asympt
+    
+    # matrix of events times
+    if (time %in% 202008:202104 | time == 202112){
+    dat = tibble(
+      t = t,
+      peak_day = peak_day,
+      days_since_exposure_pre_departure = t - 2,
+      days_since_exposure_test = t,
+      days_since_exposure_test_2 = t + 7,
+      days_since_exposure_test_3 = t + 14,
+      days_since_exposure_test_4 = t + 21,
+      days_since_exposure_q3 = t + 3,
+      days_since_exposure_q7 = t + 7,
+      days_since_exposure_q14 = t + 14,
+      days_since_exposure_q21 = t + 21,
+      asympt = asympt
+    )}
+    
+    if (time %in% 202105:202108){
+    dat = tibble(
+      t = t,
+      peak_day = peak_day,
+      days_since_exposure_pre_departure = t - 2,
+      days_since_exposure_test = t,
+      days_since_exposure_test_2 = t + 5,
+      days_since_exposure_test_3 = t + 10,
+      days_since_exposure_test_4 = t + 20,
+      days_since_exposure_q3 = t + 3,
+      days_since_exposure_q7 = t + 7,
+      days_since_exposure_q14 = t + 14,
+      days_since_exposure_q21 = t + 21,
+      asympt = asympt
+    )}
+    
+    if (time %in% 202109:202111){
+    dat = tibble(
+      t = t,
+      peak_day = peak_day,
+      days_since_exposure_pre_departure = t - 2,
+      days_since_exposure_test = t,
+      days_since_exposure_test_2 = t + 6,
+      days_since_exposure_test_3 = t + 12,
+      days_since_exposure_test_4 = t + 21,
+      days_since_exposure_q3 = t + 3,
+      days_since_exposure_q7 = t + 7,
+      days_since_exposure_q14 = t + 14,
+      days_since_exposure_q21 = t + 21,
+      asympt = asympt
+    )}
+    # all infected individuals who intended to travel
+    
+    # pass symptom screen and board
+    # 1:Pass 48 hour negative----------
+    dat = dat %>% 
+      mutate(no_sympt_when_travel = ifelse(asympt == 1 | 
+                                             (asympt == 0 & peak_day >= t), 
+                                           1, 
+                                           0)) %>% # all asym and show sym after travel can board
+      mutate(escape_sympt_screen = ifelse(no_sympt_when_travel == 0, 
+                                          sample(0:1, n(), replace = TRUE, prob = c(0.7, 0.3)),
+                                          0))  # show sym before travel have 30% to board; 1 = yes 0 = no
+    
+    # test sensitivity and infectiousness 48 hours before departure -------%
+    dat = merge(dat, 
+                ftn[ ,c('days_since_exposure_pre_departure', 
+                        'fnr_med')], 
+                by.x = 'days_since_exposure_pre_departure',
+                by.y = 'days_since_exposure_pre_departure',
+                all.x = TRUE) 
+    colnames(dat)[colnames(dat) %in% c('fnr_med')] = 'fnr_med_test_pre_departure'  
+    dat = dat %>%
+      mutate(
+        excape_48hr_test = rbinom(1:n_inf, 1, fnr_med_test_pre_departure), 
+       board = ifelse(excape_48hr_test == 1,no_sympt_when_travel + escape_sympt_screen,0)
+      )
+    
+    # test sensitivity and infectiousness on arrival -------%
+    dat = merge(dat, 
+                ftn[ ,c('days_since_exposure_test', 
+                        'fnr_med', 
+                        'cum_prob_infectious')], 
+                by.x = 'days_since_exposure_test',
+                by.y = 'days_since_exposure_test',
+                all.x = TRUE) 
+    colnames(dat)[colnames(dat) %in% c('fnr_med', 
+                                       'cum_prob_infectious')] = c('fnr_med_test',
+                                                                   'cum_prob_infectious_test')
+    
+    # test sensitivity on 2nd test -------%
+    dat = merge(dat, 
+                ftn[ ,c('days_since_exposure_test_2', 
+                        'fnr_med')], 
+                by.x = 'days_since_exposure_test_2',
+                by.y = 'days_since_exposure_test_2',
+                all.x = TRUE) 
+    colnames(dat)[colnames(dat) %in% c('fnr_med')] = 'fnr_med_test_2'
+    
+    # test sensitivity on 3rd test -------%
+    dat = merge(dat, 
+                ftn[ ,c('days_since_exposure_test_3', 
+                        'fnr_med')], 
+                by.x = 'days_since_exposure_test_3',
+                by.y = 'days_since_exposure_test_3',
+                all.x = TRUE) 
+    colnames(dat)[colnames(dat) %in% c('fnr_med')] = 'fnr_med_test_3'  
+    
+    # test sensitivity on 4th test -------%
+    dat = merge(dat, 
+                ftn[ ,c('days_since_exposure_test_4', 
+                        'fnr_med')], 
+                by.x = 'days_since_exposure_test_4',
+                by.y = 'days_since_exposure_test_4',
+                all.x = TRUE) 
+    colnames(dat)[colnames(dat) %in% c('fnr_med')] = 'fnr_med_test_4'  
+    
+    # infectiousness on day 3 -------%
+    dat = merge(dat, 
+                ftn[ ,c('days_since_exposure_q3', 
+                        'cum_prob_infectious')], 
+                by.x = 'days_since_exposure_q3',
+                by.y = 'days_since_exposure_q3',
+                all.x = TRUE)
+    colnames(dat)[colnames(dat) %in% c('cum_prob_infectious')] = 'cum_prob_infectious_q3'
+    
+    # infectiousness on day 7 -------%
+    dat = merge(dat, 
+                ftn[ ,c('days_since_exposure_q7', 
+                        'cum_prob_infectious')], 
+                by.x = 'days_since_exposure_q7',
+                by.y = 'days_since_exposure_q7',
+                all.x = TRUE)
+    colnames(dat)[colnames(dat) %in% c('cum_prob_infectious')] = 'cum_prob_infectious_q7'
+    
+    # infectiousness on day 14 -------%
+    dat = merge(dat, 
+                ftn[ ,c('days_since_exposure_q14', 
+                        'cum_prob_infectious')], 
+                by.x = 'days_since_exposure_q14',
+                by.y = 'days_since_exposure_q14',
+                all.x = TRUE)
+    colnames(dat)[colnames(dat) %in% c('cum_prob_infectious')] = 'cum_prob_infectious_q14'
+    
+    # infectiousness on day 21 -------%
+    dat = merge(dat, 
+                ftn[ ,c('days_since_exposure_q21', 
+                        'cum_prob_infectious')], 
+                by.x = 'days_since_exposure_q21',
+                by.y = 'days_since_exposure_q21',
+                all.x = TRUE)
+    colnames(dat)[colnames(dat) %in% c('cum_prob_infectious')] = 'cum_prob_infectious_q21'
+    
+    
+    #
+    # generate test-negative events
+    #
+    
+    dat = dat %>%
+      
+      # test on-arrival
+      mutate(tn_on_arrival = rbinom(n = n_inf, 
+                                    size = 1, 
+                                    prob = fnr_med_test)) %>%
+      # those not boarding can't be false-negative
+      mutate(tn_on_arrival = ifelse(board == 0,
+                                    0,
+                                    tn_on_arrival)) %>%
+      
+      # test on-day 5
+      mutate(tn_on_q_2 = rbinom(n = n_inf, 
+                                size = 1, 
+                                prob = fnr_med_test_2)) %>%
+      # on-arrival test-positives can't be false-negative on day 5
+      mutate(tn_on_q_2 = ifelse(tn_on_arrival == 0,
+                                0,
+                                tn_on_q_2)) %>%
+      
+      # test on-day 12
+      mutate(tn_on_q_3 = rbinom(n = n_inf, 
+                                 size = 1, 
+                                 prob = fnr_med_test_3)) %>%
+      # on-arrival test-positives can't be false-negative on day 11
+      mutate(tn_on_q_3 = ifelse(tn_on_arrival == 0,
+                                 0,
+                                 tn_on_q_3)) %>%
+      
+      # test on-day 19
+      mutate(tn_on_q_4 = rbinom(n = n_inf, 
+                                 size = 1, 
+                                 prob = fnr_med_test_4)) %>%
+      # on-arrival or day 12 test-positives can't be false-negative on day 19
+      mutate(tn_on_q_4 = ifelse(tn_on_arrival == 0 | 
+                                   tn_on_q_3 == 0,
+                                 0,
+                                 tn_on_q_4))
+    
+    
+    
+    #
+    # generate infectiousness
+    #
+    
+    dat = dat %>%
+      
+      # infectiousness on-arrival
+      mutate(infectious_on_arrival = ifelse(days_since_exposure_test < inf_ref &
+                                              tn_on_arrival == 1,
+                                            1, 0)) %>%
+      mutate(remained_infectious_on_arrival = ifelse(days_since_exposure_test < inf_ref &
+                                                       tn_on_arrival == 1,
+                                                     1 - cum_prob_infectious_test,
+                                                     0)) %>%
+      # infectiousness on day 3
+      mutate(infectious_q3 = ifelse(days_since_exposure_q3 < inf_ref &
+                                      tn_on_arrival == 1,
+                                    1, 0)) %>%
+      mutate(remained_infectious_q3 = ifelse(days_since_exposure_q3 < inf_ref &
+                                               tn_on_arrival == 1,
+                                             1 - cum_prob_infectious_q3,
+                                             0)) %>%
+      
+      # infectiousness on day 3 and test on arrival
+      mutate(infectious_test_q3 = ifelse(tn_on_arrival == 1,
+                                         infectious_q3, 
+                                         0)) %>%
+      mutate(remained_infectious_test_q3 = ifelse(tn_on_arrival == 1,
+                                                  remained_infectious_q3, 
+                                                  0)) %>%
+      
+      # infectiousness on day 7
+      mutate(infectious_q7 = ifelse(days_since_exposure_q7 < inf_ref &
+                                      tn_on_arrival == 1,
+                                    1, 0)) %>%
+      mutate(remained_infectious_q7 = ifelse(days_since_exposure_q7 < inf_ref &
+                                               tn_on_arrival == 1,
+                                             1 - cum_prob_infectious_q7,
+                                             0)) %>%
+      
+      # infectiousness on day 7 and test on day 5
+      mutate(infectious_test_q7 = ifelse(tn_on_q_2 == 1,
+                                         infectious_q7, 
+                                         0)) %>%
+      mutate(remained_infectious_test_q7 = ifelse(tn_on_q_2 == 1,
+                                                  remained_infectious_q7, 
+                                                  0)) %>%
+      
+      
+      # infectiousness on day 14
+      mutate(infectious_q14 = ifelse(days_since_exposure_q14 < inf_ref &
+                                       tn_on_arrival == 1,
+                                     1, 0)) %>%
+      mutate(remained_infectious_q14 = ifelse(days_since_exposure_q14 < inf_ref &
+                                                tn_on_arrival == 1,
+                                              1 - cum_prob_infectious_q14,
+                                              0)) %>%
+      
+      # infectiousness on day 14 and test on day 12
+      mutate(infectious_test_q14 = ifelse(tn_on_q_3 == 1,
+                                          infectious_q14, 
+                                          0)) %>%
+      mutate(remained_infectious_test_q14 = ifelse(tn_on_q_3 == 1,
+                                                   remained_infectious_q14, 
+                                                   0)) %>%
+      
+      
+      # infectiousness on day 21
+      mutate(infectious_q21 = ifelse(days_since_exposure_q21 < inf_ref &
+                                       tn_on_arrival == 1,
+                                     1, 0)) %>%
+      mutate(remained_infectious_q21 = ifelse(days_since_exposure_q21 < inf_ref &
+                                                tn_on_arrival == 1,
+                                              1 - cum_prob_infectious_q21,
+                                              0))  %>%
+      
+      # infectiousness on day 21 and test on day 19
+      mutate(infectious_test_q21 = ifelse(tn_on_q_4 == 1,
+                                          infectious_q21, 
+                                          0)) %>%
+      mutate(remained_infectious_test_q21 = ifelse(tn_on_q_4 == 1,
+                                                   remained_infectious_q21, 
+                                                   0))
+    
+    
+    #
+    # output
+    #
+    
+    if (time %in% 202002:202012){
+    rt = 
+      tibble(
+      n_travel = n,
+      p_i = p_i,
+      
+      n_inf = n_inf,
+      n_boarding = sum(dat$board),
+      n_asympt = sum(dat$asympt),
+      
+      n_tn_on_arrival = sum(dat$tn_on_arrival),
+
+      infectious_on_arrival = sum(dat$infectious_on_arrival),
+      infectious_q3 = sum(dat$infectious_q3),
+      infectious_test_q3 = sum(dat$infectious_test_q3),
+      infectious_q7 = sum(dat$infectious_q7),
+      infectious_test_q7 = sum(dat$infectious_test_q7),
+      infectious_q14 = sum(dat$infectious_q14),
+      infectious_test_q14 = sum(dat$infectious_test_q14),
+      infectious_q21 = 0,
+      infectious_test_q21 = 0,
+      
+      remained_infectious_on_arrival = sum(dat$remained_infectious_on_arrival),
+      remained_infectious_q3 = sum(dat$remained_infectious_q3),
+      remained_infectious_test_q3 = sum(dat$remained_infectious_test_q3),
+      remained_infectious_q7 = sum(dat$remained_infectious_q7),
+      remained_infectious_test_q7 = sum(dat$remained_infectious_test_q7),
+      remained_infectious_q14 = sum(dat$remained_infectious_q14),
+      remained_infectious_test_q14 = sum(dat$remained_infectious_test_q14),
+      remained_infectious_q21 = 0,
+      remained_infectious_test_q21 = 0
+      
+      )}
+    if (time %in% 202101:202203){
+      rt = tibble(
+      n_travel = n,
+      p_i = p_i,
+      
+      n_inf = n_inf,
+      n_boarding = sum(dat$board),
+      n_asympt = sum(dat$asympt),
+      
+        n_tn_on_arrival = sum(dat$tn_on_arrival),
+      
+      infectious_on_arrival = sum(dat$infectious_on_arrival),
+      infectious_q3 = sum(dat$infectious_q3),
+      infectious_test_q3 = sum(dat$infectious_test_q3),
+      infectious_q7 = sum(dat$infectious_q7),
+      infectious_test_q7 = sum(dat$infectious_test_q7),
+      infectious_q14 = sum(dat$infectious_q14),
+      infectious_test_q14 = sum(dat$infectious_test_q14),
+      infectious_q21 = sum(dat$infectious_q21),
+      infectious_test_q21 = sum(dat$infectious_test_q21),
+      
+      remained_infectious_on_arrival = sum(dat$remained_infectious_on_arrival),
+      remained_infectious_q3 = sum(dat$remained_infectious_q3),
+      remained_infectious_test_q3 = sum(dat$remained_infectious_test_q3),
+      remained_infectious_q7 = sum(dat$remained_infectious_q7),
+      remained_infectious_test_q7 = sum(dat$remained_infectious_test_q7),
+      remained_infectious_q14 = sum(dat$remained_infectious_q14),
+      remained_infectious_test_q14 = sum(dat$remained_infectious_test_q14),
+      remained_infectious_q21 = sum(dat$remained_infectious_q21),
+      remained_infectious_test_q21 = sum(dat$remained_infectious_test_q21)
+      
+    )
+    }
+    
+  } else {
+    
+    rt = tibble(
+      n_travel = n,
+      p_i = p_i,
+      n_inf = n_inf,
+      n_boarding = 0,
+      n_asympt = 0,
+      n_tn_on_arrival = 0,
+      infectious_on_arrival = 0,
+      infectious_q3 = 0,
+      infectious_test_q3 = 0,
+      infectious_q7 = 0,
+      infectious_test_q7 = 0,
+      infectious_q14 = 0,
+      infectious_test_q14 = 0,
+      infectious_q21 = 0,
+      infectious_test_q21 = 0,
+      remained_infectious_on_arrival = 0,
+      remained_infectious_q3 = 0,
+      remained_infectious_test_q3 = 0,
+      remained_infectious_q7 = 0,
+      remained_infectious_test_q7 = 0,
+      remained_infectious_q14 = 0,
+      remained_infectious_test_q14 = 0,
+      remained_infectious_q21 = 0,
+      remained_infectious_test_q21 = 0
+    )
+    
+  }
+  
+  
+  rt
+  
+  
+  
+}
+```
+
+Scenario D: observed level of travel volume, observed quarantine, but no test
+
+```{r Sample Infections-observed quarantine, no tests,echo=FALSE}
+sampleInfection_D = function(n, p_i, n_inf, T_max, ftn, incubation_period, inf_ref, direction,time){
+
+  if(n_inf > 0 ){
+    
+    exp_prob = linearfunctionP(x=T_max, a = 1, b = T_max, direction = direction)
+    t = sample(1:T_max,n_inf,replace=TRUE,prob = exp_prob)
+    #t = sample(1:T_max, n_inf, replace = TRUE)
+    
+    # generate incubation period (days since exposure)
+    peak_day = sample(incubation_period$days_since_exposure[1:20],
+                      n_inf,
+                      replace = TRUE,
+                      prob = incubation_period$prob_symptom_onset[1:20])
+    
+    # generate symptomatic
+    p_asymp = rnorm(1,
+                    mean = 0.1954023,
+                    sd = 0.05046811)
+    while (p_asymp >1 || p_asymp <0) {
+      p_asymp = rnorm(1,
+                      mean = 0.1954023,
+                      sd = 0.05046811)}
+    asympt = rbinom(n = n_inf, size = 1, p = p_asymp)
+    
+    n_asympt = sum(asympt)
+    n_sympt = n_inf - n_asympt
+    
+    # matrix of events times
+    dat = tibble(
+      t = t,
+      peak_day = peak_day,
+      days_since_exposure_pre_departure = t - 2,
+      days_since_exposure_test = t,
+      days_since_exposure_q3 = t + 3,
+      days_since_exposure_q7 = t + 7,
+      days_since_exposure_q14 = t + 14,
+      days_since_exposure_q21 = t + 21,
+      asympt = asympt
+    ) # all infected individuals who intended to travel
+    
+    # pass symptom screen and board
+    # 1:Pass 48 hour negative----------
+    dat = dat %>% 
+      mutate(no_sympt_when_travel = ifelse(asympt == 1 | 
+                                             (asympt == 0 & peak_day >= t), 
+                                           1, 
+                                           0)) %>% # all asym and show sym after travel can board
+      mutate(escape_sympt_screen = ifelse(no_sympt_when_travel == 0, 
+                                          sample(0:1, n(), replace = TRUE, prob = c(0.7, 0.3)),
+                                          0))
+    dat = merge(dat, 
+                ftn[ ,c('days_since_exposure_pre_departure', 
+                        'fnr_med')], 
+                by.x = 'days_since_exposure_pre_departure',
+                by.y = 'days_since_exposure_pre_departure',
+                all.x = TRUE) 
+    colnames(dat)[colnames(dat) %in% c('fnr_med')] = 'fnr_med_test_pre_departure'  
+    dat = dat %>%
+      mutate(
+        excape_48hr_test = rbinom(1:n_inf, 1, fnr_med_test_pre_departure), 
+       board = ifelse(excape_48hr_test == 1,no_sympt_when_travel + escape_sympt_screen,0)
+      )
+    
+    # infectiousness on arrival -------%
+    dat = merge(dat, 
+                ftn[ ,c('days_since_exposure_test', 
+                        'fnr_med', 
+                        'cum_prob_infectious')], 
+                by.x = 'days_since_exposure_test',
+                by.y = 'days_since_exposure_test',
+                all.x = TRUE) 
+    colnames(dat)[colnames(dat) %in% c('cum_prob_infectious')] = 'cum_prob_infectious_test'
+    
+    # infectiousness on day 3 -------%
+    dat = merge(dat, 
+                ftn[ ,c('days_since_exposure_q3', 
+                        'cum_prob_infectious')], 
+                by.x = 'days_since_exposure_q3',
+                by.y = 'days_since_exposure_q3',
+                all.x = TRUE)
+    colnames(dat)[colnames(dat) %in% c('cum_prob_infectious')] = 'cum_prob_infectious_q3'
+    
+    # infectiousness on day 7 -------%
+    dat = merge(dat, 
+                ftn[ ,c('days_since_exposure_q7', 
+                        'cum_prob_infectious')], 
+                by.x = 'days_since_exposure_q7',
+                by.y = 'days_since_exposure_q7',
+                all.x = TRUE)
+    colnames(dat)[colnames(dat) %in% c('cum_prob_infectious')] = 'cum_prob_infectious_q7'
+    
+    # infectiousness on day 14 -------%
+    dat = merge(dat, 
+                ftn[ ,c('days_since_exposure_q14', 
+                        'cum_prob_infectious')], 
+                by.x = 'days_since_exposure_q14',
+                by.y = 'days_since_exposure_q14',
+                all.x = TRUE)
+    colnames(dat)[colnames(dat) %in% c('cum_prob_infectious')] = 'cum_prob_infectious_q14'
+    
+    # infectiousness on day 21 -------%
+    dat = merge(dat, 
+                ftn[ ,c('days_since_exposure_q21', 
+                        'cum_prob_infectious')], 
+                by.x = 'days_since_exposure_q21',
+                by.y = 'days_since_exposure_q21',
+                all.x = TRUE)
+    colnames(dat)[colnames(dat) %in% c('cum_prob_infectious')] = 'cum_prob_infectious_q21'
+    
+    
+    #
+    # generate test-negative events
+    #
+    
+    
+    
+    
+    #
+    # generate infectiousness
+    #
+    
+    dat = dat %>%
+      
+      # infectiousness on-arrival
+      mutate(infectious_on_arrival = ifelse(days_since_exposure_test < inf_ref
+                                            & board ==1,
+                                            1, 0)) %>%
+      mutate(remained_infectious_on_arrival = ifelse(days_since_exposure_test < inf_ref
+                                                     & board ==1,
+                                                     1 - cum_prob_infectious_test,
+                                                     0)) %>%
+      # infectiousness on day 3
+      mutate(infectious_q3 = ifelse(days_since_exposure_q3 < inf_ref
+                                    & board ==1,
+                                    1, 0)) %>%
+      mutate(remained_infectious_q3 = ifelse(days_since_exposure_q3 < inf_ref
+                                             & board ==1,
+                                             1 - cum_prob_infectious_q3,
+                                             0)) %>%
+      
+      # infectiousness on day 3 and test on arrival
+      mutate(infectious_test_q3 =infectious_q3) %>%
+      mutate(remained_infectious_test_q3 = remained_infectious_q3) %>%
+      
+      # infectiousness on day 7
+      mutate(infectious_q7 = ifelse(days_since_exposure_q7 < inf_ref
+                                    & board ==1,
+                                    1, 0)) %>%
+      mutate(remained_infectious_q7 = ifelse(days_since_exposure_q7 < inf_ref
+                                             & board ==1,
+                                             1 - cum_prob_infectious_q7,
+                                             0)) %>%
+      
+      # infectiousness on day 7 and test on day 5
+      mutate(infectious_test_q7 = infectious_q7) %>%
+      mutate(remained_infectious_test_q7 = remained_infectious_q7) %>%
+      
+      
+      # infectiousness on day 14
+      mutate(infectious_q14 = ifelse(days_since_exposure_q14 < inf_ref
+                                     & board ==1,
+                                     1, 0)) %>%
+      mutate(remained_infectious_q14 = ifelse(days_since_exposure_q14 < inf_ref
+                                              & board ==1,
+                                              1 - cum_prob_infectious_q14,
+                                              0)) %>%
+      
+      # infectiousness on day 14 and test on day 12
+      mutate(infectious_test_q14 = infectious_q14) %>%
+      mutate(remained_infectious_test_q14 = remained_infectious_q14) %>%
+      
+      
+      # infectiousness on day 21
+      mutate(infectious_q21 = ifelse(days_since_exposure_q21 < inf_ref
+                                     & board ==1,
+                                     1, 0)) %>%
+      mutate(remained_infectious_q21 = ifelse(days_since_exposure_q21 < inf_ref
+                                              & board ==1,
+                                              1 - cum_prob_infectious_q21,
+                                              0))  %>%
+      
+      # infectiousness on day 21 and test on day 19
+      mutate(infectious_test_q21 = infectious_q21) %>%
+      mutate(remained_infectious_test_q21 = remained_infectious_q21)
+    
+    
+    #
+    # output
+    #
+    
+    if (time %in% 202002:202012){
+    rt = 
+      tibble(
+      n_travel = n,
+      p_i = p_i,
+      
+      n_inf = n_inf,
+      n_boarding = sum(dat$board),
+      n_asympt = sum(dat$asympt),
+      
+      
+    n_tn_on_arrival = 0,
+
+      infectious_on_arrival = sum(dat$infectious_on_arrival),
+      infectious_q3 = sum(dat$infectious_q3),
+    infectious_test_q3 = 0,
+      infectious_q7 = sum(dat$infectious_q7),
+    infectious_test_q7 = 0,
+      infectious_q14 = sum(dat$infectious_q14),
+    infectious_test_q14 = 0,
+      infectious_q21 = 0,
+    infectious_test_q21 = 0,
+      
+      remained_infectious_on_arrival = sum(dat$remained_infectious_on_arrival),
+      remained_infectious_q3 = sum(dat$remained_infectious_q3),
+    remained_infectious_test_q3 = 0,
+      remained_infectious_q7 = sum(dat$remained_infectious_q7),
+    remained_infectious_test_q7 = 0,
+      remained_infectious_q14 = sum(dat$remained_infectious_q14),
+    remained_infectious_test_q14 = 0,
+      remained_infectious_q21 = 0,
+    remained_infectious_test_q21 = 0
+      
+      )}
+    if (time %in% 202101:202203){
+         rt = 
+      tibble(
+      n_travel = n,
+      p_i = p_i,
+      
+      n_inf = n_inf,
+      n_boarding = sum(dat$board),
+      n_asympt = sum(dat$asympt),
+      
+      
+    n_tn_on_arrival = 0,
+
+      infectious_on_arrival = sum(dat$infectious_on_arrival),
+      infectious_q3 = sum(dat$infectious_q3),
+    infectious_test_q3 = 0,
+      infectious_q7 = sum(dat$infectious_q7),
+    infectious_test_q7 = 0,
+      infectious_q14 = sum(dat$infectious_q14),
+    infectious_test_q14 = 0,
+      infectious_q21 = sum(dat$infectious_q21),
+    infectious_test_q21 = 0,
+      
+      remained_infectious_on_arrival = sum(dat$remained_infectious_on_arrival),
+      remained_infectious_q3 = sum(dat$remained_infectious_q3),
+    remained_infectious_test_q3 = 0,
+      remained_infectious_q7 = sum(dat$remained_infectious_q7),
+    remained_infectious_test_q7 = 0,
+      remained_infectious_q14 = sum(dat$remained_infectious_q14),
+    remained_infectious_test_q14 = 0,
+      remained_infectious_q21 = sum(dat$remained_infectious_q21),
+    remained_infectious_test_q21 = 0
+    )
+    }
+    
+  } else {
+    
+    rt = tibble(
+    n_travel = n,
+    p_i = p_i,
+    n_inf = n_inf,
+    n_boarding = 0,
+    n_asympt = 0,
+    n_tn_on_arrival = 0,
+    infectious_on_arrival = 0,
+    infectious_q3 = 0,
+    infectious_test_q3 = 0,
+    infectious_q7 = 0,
+    infectious_test_q7 = 0,
+    infectious_q14 = 0,
+    infectious_test_q14 = 0,
+    infectious_q21 = 0,
+    infectious_test_q21 = 0,
+    remained_infectious_on_arrival = 0,
+    remained_infectious_q3 = 0,
+    remained_infectious_test_q3 = 0,
+    remained_infectious_q7 = 0,
+    remained_infectious_test_q7 = 0,
+    remained_infectious_q14 = 0,
+    remained_infectious_test_q14 = 0,
+    remained_infectious_q21 = 0,
+    remained_infectious_test_q21 = 0
+)
+    
+  }
+  
+  
+  rt
+  
+  
+  
+}
+```
+
+Scenario E: Observed level of travel Volume, no Quarantine, observed test
+
+```{r  Sample Infections-no quarantine, observed tests,echo=FALSE}
+sampleInfection_E = function(n, p_i, n_inf, T_max, ftn, incubation_period, inf_ref, direction,time){
+  
+  if(n_inf > 0 ){
+    
+    exp_prob = linearfunctionP(x=T_max, a = 1, b = T_max, direction = direction)
+    t = sample(1:T_max,n_inf,replace=TRUE,prob = exp_prob)
+    #t = sample(1:T_max, n_inf, replace = TRUE)
+    
+    # generate incubation period (days since exposure)
+    peak_day = sample(incubation_period$days_since_exposure[1:20],
+                      n_inf,
+                      replace = TRUE,
+                      prob = incubation_period$prob_symptom_onset[1:20])
+    
+    # generate symptomatic
+    p_asymp = rnorm(1,
+                    mean = 0.1954023,
+                    sd = 0.05046811)
+    while (p_asymp >1 || p_asymp <0) {
+      p_asymp = rnorm(1,
+                      mean = 0.1954023,
+                      sd = 0.05046811)}
+    asympt = rbinom(n = n_inf, size = 1, p = p_asymp)
+    
+    n_asympt = sum(asympt)
+    n_sympt = n_inf - n_asympt
+    
+    # matrix of events times
+    dat = tibble(
+      t = t,
+      peak_day = peak_day,
+      days_since_exposure_pre_departure = t - 2,
+      days_since_exposure_test = t,
+      days_since_exposure_q3 = t + 3,
+      days_since_exposure_q7 = t + 7,
+      days_since_exposure_q14 = t + 14,
+      days_since_exposure_q21 = t + 21,
+      asympt = asympt
+    ) # all infected individuals who intended to travel
+    
+    # pass symptom screen and board
+    # 1:Pass 48 hour negative----------
+    dat = dat %>% 
+      mutate(no_sympt_when_travel = ifelse(asympt == 1 | 
+                                             (asympt == 0 & peak_day >= t), 
+                                           1, 
+                                           0)) %>% # all asym and show sym after travel can board
+      mutate(escape_sympt_screen = ifelse(no_sympt_when_travel == 0, 
+                                          sample(0:1, n(), replace = TRUE, prob = c(0.7, 0.3)),
+                                          0))  # show sym before travel have 30% to board; 1 = yes 0 = no
+    
+
+    dat = merge(dat, 
+                ftn[ ,c('days_since_exposure_pre_departure', 
+                        'fnr_med')], 
+                by.x = 'days_since_exposure_pre_departure',
+                by.y = 'days_since_exposure_pre_departure',
+                all.x = TRUE) 
+    colnames(dat)[colnames(dat) %in% c('fnr_med')] = 'fnr_med_test_pre_departure'  
+    dat = dat %>%
+      mutate(
+        excape_48hr_test = rbinom(1:n_inf, 1, fnr_med_test_pre_departure), 
+       board = ifelse(excape_48hr_test == 1,no_sympt_when_travel + escape_sympt_screen,0)
+      )
+    
+    # test sensitivity and infectiousness on arrival -------%
+    dat = merge(dat, 
+                ftn[ ,c('days_since_exposure_test', 
+                        'fnr_med', 
+                        'cum_prob_infectious')], 
+                by.x = 'days_since_exposure_test',
+                by.y = 'days_since_exposure_test',
+                all.x = TRUE) 
+    colnames(dat)[colnames(dat) %in% c('fnr_med', 
+                                       'cum_prob_infectious')] = c('fnr_med_test',
+                                                                   'cum_prob_infectious_test')
+    #
+    # generate test-negative events, on-arrival only
+    #
+    
+    dat = dat %>%
+      
+      # test on-arrival
+      mutate(tn_on_arrival = rbinom(n = n_inf, 
+                                    size = 1, 
+                                    prob = fnr_med_test)) %>%
+      # those not boarding can't be false-negative
+      mutate(tn_on_arrival = ifelse(board == 0,
+                                    0,
+                                    tn_on_arrival))
+    
+    #
+    # generate infectiousness
+    #
+    
+    dat = dat %>%
+      
+      # infectiousness on-arrival
+      mutate(infectious_on_arrival = ifelse(days_since_exposure_test < inf_ref &
+                                              tn_on_arrival == 1,
+                                            1, 0)) %>%
+      mutate(remained_infectious_on_arrival = ifelse(days_since_exposure_test < inf_ref &
+                                                       tn_on_arrival == 1,
+                                                     1 - cum_prob_infectious_test,
+                                                     0)) 
+    #
+    # output
+    #
+    
+    rt = 
+      tibble(
+      n_travel = n,
+      p_i = p_i,
+      
+      n_inf = n_inf,
+      n_boarding = sum(dat$board),
+      n_asympt = sum(dat$asympt),
+      
+      n_tn_on_arrival = sum(dat$tn_on_arrival),
+    
+      infectious_on_arrival = sum(dat$infectious_on_arrival),
+    infectious_q3 = 0,
+    infectious_test_q3 = 0,
+    infectious_q7 = 0,
+    infectious_test_q7 = 0,
+    infectious_q14 = 0,
+    infectious_test_q14 = 0,
+    infectious_q21 = 0,
+    infectious_test_q21 = 0,
+    
+      remained_infectious_on_arrival = sum(dat$remained_infectious_on_arrival),
+    remained_infectious_q3 = 0,
+    remained_infectious_test_q3 = 0,
+    remained_infectious_q7 = 0,
+    remained_infectious_test_q7 = 0,
+    remained_infectious_q14 = 0,
+    remained_infectious_test_q14 = 0,
+    remained_infectious_q21 = 0,
+    remained_infectious_test_q21 = 0
+      )
+
+    
+  } else {
+    
+    rt = tibble(
+      n_travel = n,
+      p_i = p_i,
+      n_inf = n_inf,
+      n_boarding = 0,
+      n_asympt = 0,
+      n_tn_on_arrival = 0,
+      infectious_on_arrival = 0,
+      infectious_q3 = 0,
+      infectious_test_q3 = 0,
+      infectious_q7 = 0,
+      infectious_test_q7 = 0,
+      infectious_q14 = 0,
+      infectious_test_q14 = 0,
+      infectious_q21 = 0,
+      infectious_test_q21 = 0,
+      remained_infectious_on_arrival = 0,
+      remained_infectious_q3 = 0,
+      remained_infectious_test_q3 = 0,
+      remained_infectious_q7 = 0,
+      remained_infectious_test_q7 = 0,
+      remained_infectious_q14 = 0,
+      remained_infectious_test_q14 = 0,
+      remained_infectious_q21 = 0,
+      remained_infectious_test_q21 = 0
+    )
+    
+  }
+  
+  
+  rt
+  
+
+  
+}
+```
+
+Scenario A Pre-pandemic level, No Quarantine, No test
+
+```{r Sample Infections-No Quarantine, No test,echo=FALSE}
+sampleInfection_base = function(n, p_i, n_inf, T_max, ftn, incubation_period, inf_ref, direction,time){
+
+  if(n_inf > 0 ){
+    
+    exp_prob = linearfunctionP(x=T_max, a = 1, b = T_max, direction = direction)
+    t = sample(1:T_max,n_inf,replace=TRUE,prob = exp_prob)
+    #t = sample(1:T_max, n_inf, replace = TRUE)
+    
+    # generate incubation period (days since exposure)
+    peak_day = sample(incubation_period$days_since_exposure[1:20],
+                      n_inf,
+                      replace = TRUE,
+                      prob = incubation_period$prob_symptom_onset[1:20])
+    
+    # generate symptomatic
+    p_asymp = rnorm(1,
+                    mean = 0.1954023,
+                    sd = 0.05046811)
+    while (p_asymp >1 || p_asymp <0) {
+      p_asymp = rnorm(1,
+                      mean = 0.1954023,
+                      sd = 0.05046811)}
+    asympt = rbinom(n = n_inf, size = 1, p = p_asymp)
+    
+    n_asympt = sum(asympt)
+    n_sympt = n_inf - n_asympt
+    
+    dat = tibble(
+      t = t,
+      peak_day = peak_day,
+      days_since_exposure_pre_departure = t - 2,
+      days_since_exposure_test = t)
+    
+        dat = dat %>% 
+      mutate(no_sympt_when_travel = ifelse(asympt == 1 | 
+                                             (asympt == 0 & peak_day >= t), 
+                                           1, 
+                                           0)) %>% # all asym and show sym after travel can board
+      mutate(escape_sympt_screen = ifelse(no_sympt_when_travel == 0, 
+                                          sample(0:1, n(), replace = TRUE, prob = c(0.7, 0.3)),
+                                          0))  # show sym before travel have 30% to board; 1 = yes 0 = no
+    
+    # test sensitivity and infectiousness 48 hours before departure -------%
+    dat = merge(dat, 
+                ftn[ ,c('days_since_exposure_pre_departure', 
+                        'fnr_med')], 
+                by.x = 'days_since_exposure_pre_departure',
+                by.y = 'days_since_exposure_pre_departure',
+                all.x = TRUE) 
+    colnames(dat)[colnames(dat) %in% c('fnr_med')] = 'fnr_med_test_pre_departure'  
+    dat = dat %>%
+      mutate(
+        excape_48hr_test = rbinom(1:n_inf, 1, fnr_med_test_pre_departure), 
+       board = ifelse(excape_48hr_test == 1,no_sympt_when_travel + escape_sympt_screen,0)
+      )
+    
+    dat = merge(dat, 
+                ftn[ ,c('days_since_exposure_test', 
+                        'fnr_med', 
+                        'cum_prob_infectious')], 
+                by.x = 'days_since_exposure_test',
+                by.y = 'days_since_exposure_test',
+                all.x = TRUE) 
+    colnames(dat)[colnames(dat) %in% c('fnr_med', 
+                                       'cum_prob_infectious')] = c('fnr_med_test',
+                                                                   'cum_prob_infectious_test')
+     
+     dat = dat %>%
+      
+      # infectiousness on-arrival
+      mutate(infectious_on_arrival = ifelse(days_since_exposure_test < inf_ref
+                                            & board ==1,
+                                            1, 0)) %>%
+      mutate(remained_infectious_on_arrival = ifelse(days_since_exposure_test < inf_ref
+                                                     & board ==1,
+                                                     1 - cum_prob_infectious_test,
+                                                     0)) 
+     
+    rt = 
+      tibble(
+      n_travel = n,
+      p_i = p_i,
+      
+      n_inf = n_inf,
+      n_boarding = sum(dat$board),
+      n_asympt = sum(dat$asympt),
+      
+    n_tn_on_arrival = 0,
+    
+    infectious_on_arrival = sum(dat$infectious_on_arrival),
+    infectious_q3 = 0,
+    infectious_test_q3 = 0,
+    infectious_q7 = 0,
+    infectious_test_q7 = 0,
+    infectious_q14 = 0,
+    infectious_test_q14 = 0,
+    infectious_q21 = 0,
+    infectious_test_q21 = 0,
+    
+    remained_infectious_on_arrival = sum(dat$remained_infectious_on_arrival),
+    remained_infectious_q3 = 0,
+    remained_infectious_test_q3 = 0,
+    remained_infectious_q7 = 0,
+    remained_infectious_test_q7 = 0,
+    remained_infectious_q14 = 0,
+    remained_infectious_test_q14 = 0,
+    remained_infectious_q21 = 0,
+    remained_infectious_test_q21 = 0
+      )}
+  else{
+         rt = tibble(
+    n_travel = n,
+    p_i = p_i,
+    n_inf = n_inf,
+    n_boarding = 0,
+    n_asympt = 0,
+    n_tn_on_arrival = 0,
+    infectious_on_arrival = 0,
+    infectious_q3 = 0,
+    infectious_test_q3 = 0,
+    infectious_q7 = 0,
+    infectious_test_q7 = 0,
+    infectious_q14 = 0,
+    infectious_test_q14 = 0,
+    infectious_q21 = 0,
+    infectious_test_q21 = 0,
+    remained_infectious_on_arrival = 0,
+    remained_infectious_q3 = 0,
+    remained_infectious_test_q3 = 0,
+    remained_infectious_q7 = 0,
+    remained_infectious_test_q7 = 0,
+    remained_infectious_q14 = 0,
+    remained_infectious_test_q14 = 0,
+    remained_infectious_q21 = 0,
+    remained_infectious_test_q21 = 0)
+  }
+}
+
+```
+
+Test-to-release scenario: Independent effectiveness simultion
+```{r}
+sampleInfection_independent= function(n, p_i, T_max,n_inf, ftn, incubation_period, inf_ref, direction){
+
+    
+    exp_prob = linearfunctionP(x=T_max, a = 1, b = T_max, direction = direction)
+    t = sample(1:T_max,n_inf,replace=TRUE,prob = exp_prob)
+    #t = sample(1:T_max, n_inf, replace = TRUE)
+    
+    # generate incubation period (days since exposure)
+    peak_day = sample(incubation_period$days_since_exposure[1:20],
+                      n_inf,
+                      replace = TRUE,
+                      prob = incubation_period$prob_symptom_onset[1:20])
+    
+    # generate symptomatic
+    p_asymp = rnorm(1,
+                    mean = 0.1954023,
+                    sd = 0.05046811)
+    while (p_asymp >1 || p_asymp <0) {
+      p_asymp = rnorm(1,
+                      mean = 0.1954023,
+                      sd = 0.05046811)}
+    asympt = rbinom(n = n_inf, size = 1, p = p_asymp)
+    
+    n_asympt = sum(asympt)
+    n_sympt = n_inf - n_asympt
+    
+    # matrix of events times
+    dat = tibble(
+      t = t,
+      peak_day = peak_day,
+      days_since_exposure_pre_departure = t - sample(2,1),
+      days_since_exposure_test = t,
+      days_since_exposure_test_5 = t + 5,
+      days_since_exposure_test_12 = t + 12,
+      days_since_exposure_test_19 = t + 19,
+      days_since_exposure_q3 = t + 3,
+      days_since_exposure_q7 = t + 7,
+      days_since_exposure_q14 = t + 14,
+      days_since_exposure_q21 = t + 21,
+      asympt = asympt
+    ) # all infected individuals who intended to travel
+    
+    # pass symptom screen and board
+    # 1:Pass 48 hour negative----------
+    dat = dat %>% 
+      mutate(no_sympt_when_travel = ifelse(asympt == 1 | 
+                                             (asympt == 0 & peak_day >= t), 
+                                           1, 
+                                           0)) %>% # all asym and show sym after travel can board
+      mutate(escape_sympt_screen = ifelse(no_sympt_when_travel == 0, 
+                                          sample(0:1, n(), replace = TRUE, prob = c(0.7, 0.3)),
+                                          0))%>%
+      mutate(Positive_sympt_screen = 1-(no_sympt_when_travel+escape_sympt_screen))# show sym before travel have 30% to board; 1 = yes 0 = no
+    
+    
+    # Merge probability
+    
+    dat = merge(dat,
+                ftn[ ,c('days_since_exposure_pre_departure', 
+                        'fnr_med')], 
+                by.x = 'days_since_exposure_pre_departure',
+                by.y = 'days_since_exposure_pre_departure',
+                all.x = TRUE) 
+    colnames(dat)[colnames(dat) %in% c('fnr_med')] = 'False_Negative_Rate_Pre_Departure'  
+
+    
+    # test sensitivity and infectiousness on arrival -------%
+    dat = merge(dat, 
+                ftn[ ,c('days_since_exposure_test', 
+                        'fnr_med', 
+                        'cum_prob_infectious')], 
+                by.x = 'days_since_exposure_test',
+                by.y = 'days_since_exposure_test',
+                all.x = TRUE) 
+    colnames(dat)[colnames(dat) %in% c('fnr_med')] = c('False_Negative_Rate_on_Arrival')
+    
+    # test sensitivity on day 5 -------%
+    dat = merge(dat, 
+                ftn[ ,c('days_since_exposure_q7', 
+                        'fnr_med')], 
+                by.x = 'days_since_exposure_q7',
+                by.y = 'days_since_exposure_q7',
+                all.x = TRUE) 
+    colnames(dat)[colnames(dat) %in% c('fnr_med')] = 'False_Negative_Rate_Day7'
+    
+    # test sensitivity on day 12 -------%
+    dat = merge(dat, 
+                ftn[ ,c('days_since_exposure_q14', 
+                        'fnr_med')], 
+                by.x = 'days_since_exposure_q14',
+                by.y = 'days_since_exposure_q14',
+                all.x = TRUE) 
+    colnames(dat)[colnames(dat) %in% c('fnr_med')] = 'False_Negative_Rate_Day14'  
+    
+    # test sensitivity on day 19 -------%
+    dat = merge(dat, 
+                ftn[ ,c('days_since_exposure_q21', 
+                        'fnr_med')], 
+                by.x = 'days_since_exposure_q21',
+                by.y = 'days_since_exposure_q21',
+                all.x = TRUE) 
+    colnames(dat)[colnames(dat) %in% c('fnr_med')] = 'False_Negative_Rate_Day21'  
+    
+    
+    
+    
+    dat = dat %>%
+      
+      
+      mutate(pre_departure_test= rbinom(n = n_inf, 
+                                     size = 1, 
+                                     prob = 1-False_Negative_Rate_Pre_Departure)) %>%
+      # test on-arrival
+      mutate(on_arrival_test= rbinom(n = n_inf, 
+                                    size = 1, 
+                                    prob = 1-False_Negative_Rate_on_Arrival)) %>%
+      # test on-day 7 to release
+      mutate(Day7_test = rbinom(n = n_inf, 
+                                size = 1, 
+                                prob = 1-False_Negative_Rate_Day7)) %>%
+      
+      # test on-day 14 to release
+      mutate(Day14_test = rbinom(n = n_inf, 
+                                 size = 1, 
+                                 prob = 1-False_Negative_Rate_Day14)) %>%
+      # test on-day 21 to release
+      mutate(Day21_test = rbinom(n = n_inf, 
+                                 size = 1, 
+                                 prob = 1-False_Negative_Rate_Day21)) 
+    
+    rt = tibble(
+      n_travel = n,
+      p_i = p_i,
+      Infected = n_inf,
+      
+      Sympt_screen = sum(dat$Positive_sympt_screen/n_inf),
+      Test_Positive_48_hour_pre_departure = sum(dat$pre_departure_test/n_inf),
+      Test_Positive_on_arrival = sum(dat$on_arrival_test/n_inf),
+      Test_Positive_Day7 = sum(dat$Day7_test/n_inf),
+      Test_Positive_Day14 = sum(dat$Day14_test/n_inf),
+      Test_Positive_Day21 = sum(dat$Day21_test/n_inf)
+    )
+    
+    
+    rt
+ 
+  }
+```
+
+Test-to-release scenario: Marginal and Cumulative effectiveness simulation
+```{r}
+sampleInfection_marginal= function(n, p_i, T_max,n_inf,ftn, incubation_period, inf_ref, direction){
+  
+  
+  exp_prob = linearfunctionP(x=T_max, a = 1, b = T_max, direction = direction)
+  t = sample(1:T_max,n_inf,replace=TRUE,prob = exp_prob)
+  #t = sample(1:T_max, n_inf, replace = TRUE)
+  
+  # generate incubation period (days since exposure)
+  peak_day = sample(incubation_period$days_since_exposure[1:20],
+                    n_inf,
+                    replace = TRUE,
+                    prob = incubation_period$prob_symptom_onset[1:20])
+  
+  # generate symptomatic
+  p_asymp = rnorm(1,
+                  mean = 0.1954023,
+                  sd = 0.05046811)
+  while (p_asymp >1 || p_asymp <0) {
+    p_asymp = rnorm(1,
+                    mean = 0.1954023,
+                    sd = 0.05046811)}
+  asympt = rbinom(n = n_inf, size = 1, p = p_asymp)
+  
+  n_asympt = sum(asympt)
+  n_sympt = n_inf - n_asympt
+  
+  # matrix of events times
+  dat = tibble(
+    t = t,
+    peak_day = peak_day,
+    days_since_exposure_pre_departure = t - sample(2,1),
+    days_since_exposure_test = t,
+    days_since_exposure_test_5 = t + 5,
+    days_since_exposure_test_12 = t + 12,
+    days_since_exposure_test_19 = t + 19,
+    days_since_exposure_q3 = t + 3,
+    days_since_exposure_q7 = t + 7,
+    days_since_exposure_q14 = t + 14,
+    days_since_exposure_q21 = t + 21,
+    asympt = asympt
+  ) # all infected individuals who intended to travel
+  
+  # pass symptom screen and board
+  # 1:Pass 48 hour negative----------
+  dat = dat %>% 
+    mutate(no_sympt_when_travel = ifelse(asympt == 1 | 
+                                           (asympt == 0 & peak_day >= t), 
+                                         1, 
+                                         0)) %>% # all asym and show sym after travel can board
+    mutate(escape_sympt_screen = ifelse(no_sympt_when_travel == 0, 
+                                        sample(0:1, n(), replace = TRUE, prob = c(0.7, 0.3)),
+                                        0))%>%
+    mutate(Positive_sympt_screen = 1-(no_sympt_when_travel+escape_sympt_screen))# show sym before travel have 30% to board; 1 = yes 0 = no
+  
+
+  # Merge probability
+  
+  dat = merge(dat,
+              ftn[ ,c('days_since_exposure_pre_departure', 
+                      'fnr_med')], 
+              by.x = 'days_since_exposure_pre_departure',
+              by.y = 'days_since_exposure_pre_departure',
+              all.x = TRUE) 
+  colnames(dat)[colnames(dat) %in% c('fnr_med')] = 'False_Negative_Rate_Pre_Departure'  
+  
+  
+  # test sensitivity and infectiousness on arrival -------%
+  dat = merge(dat, 
+              ftn[ ,c('days_since_exposure_test', 
+                      'fnr_med', 
+                      'cum_prob_infectious')], 
+              by.x = 'days_since_exposure_test',
+              by.y = 'days_since_exposure_test',
+              all.x = TRUE) 
+  colnames(dat)[colnames(dat) %in% c('fnr_med')] = c('False_Negative_Rate_on_Arrival')
+  
+  # test sensitivity on day 7 -------%
+  dat = merge(dat, 
+              ftn[ ,c('days_since_exposure_q7', 
+                      'fnr_med')], 
+              by.x = 'days_since_exposure_q7',
+              by.y = 'days_since_exposure_q7',
+              all.x = TRUE) 
+  colnames(dat)[colnames(dat) %in% c('fnr_med')] = 'False_Negative_Rate_Day7'
+  
+  # test sensitivity on day 14 -------%
+  dat = merge(dat, 
+              ftn[ ,c('days_since_exposure_q14', 
+                      'fnr_med')], 
+              by.x = 'days_since_exposure_q14',
+              by.y = 'days_since_exposure_q14',
+              all.x = TRUE) 
+  colnames(dat)[colnames(dat) %in% c('fnr_med')] = 'False_Negative_Rate_Day14'  
+  
+  # test sensitivity on day 21 -------%
+  dat = merge(dat, 
+              ftn[ ,c('days_since_exposure_q21', 
+                      'fnr_med')], 
+              by.x = 'days_since_exposure_q21',
+              by.y = 'days_since_exposure_q21',
+              all.x = TRUE) 
+  colnames(dat)[colnames(dat) %in% c('fnr_med')] = 'False_Negative_Rate_Day21'  
+  
+  
+  
+  #Get marginal effectiveness by date
+  dat = dat %>%
+    mutate(pre_departure_test = rbinom(n = n_inf, 
+                                       size = 1, 
+                                       prob = 1 - False_Negative_Rate_Pre_Departure)) %>%
+    mutate(Positive_sympt_screen = ifelse(pre_departure_test == 1, 0, Positive_sympt_screen)) %>%
+    #How many escaped last test will be captured in this test
+    mutate(on_arrival_test = ifelse(pre_departure_test == 1 | 
+                                      Positive_sympt_screen == 1, 0,
+                                    rbinom(n = n_inf, 
+                                           size = 1, 
+                                           prob = 1 - False_Negative_Rate_on_Arrival))) %>%
+    mutate(Day7_test = ifelse(on_arrival_test == 1 | 
+                                pre_departure_test == 1 | 
+                                Positive_sympt_screen == 1, 0,
+                              rbinom(n = n_inf, 
+                                     size = 1, 
+                                     prob = 1 - False_Negative_Rate_Day7))) %>%
+    mutate(Day14_test = ifelse(Day7_test == 1 | 
+                                 on_arrival_test == 1 | 
+                                 pre_departure_test == 1 |
+                                 Positive_sympt_screen == 1, 0,
+                               rbinom(n = n_inf, 
+                                      size = 1, 
+                                      prob = 1 - False_Negative_Rate_Day14))) %>%
+    mutate(Day21_test = ifelse(Day14_test == 1 | 
+                                 Day7_test == 1 | 
+                                 on_arrival_test == 1 | 
+                                 pre_departure_test == 1 | 
+                                 Positive_sympt_screen == 1, 0,
+                               rbinom(n = n_inf, 
+                                      size = 1, 
+                                      prob = 1 - False_Negative_Rate_Day21))) %>%
+    
+    mutate(cum_Positive_pre_departure = pre_departure_test) %>%
+    mutate(cum_Positive_departure = Positive_pre_departure + Positive_sympt_screen) %>%
+    mutate(cum_Positive_arrival = Positive_departure + on_arrival_test) %>%
+    mutate(cum_Positive_Day7 = Positive_arrival + Day7_test) %>%
+    mutate(cum_Positive_Day14 = Positive_Day7 + Day14_test) %>%
+    mutate(cum_Positive_Day21 = Positive_Day14 + Day21_test)
+  
+  
+  rt = tibble(
+    n_travel = n,
+    p_i = p_i,
+    Infected = n_inf,
+    
+    Sympt_screen = sum(dat$Positive_sympt_screen/n_inf),
+    Test_Positive_48_hour_pre_departure = sum(dat$pre_departure_test/n_inf),
+    Test_Positive_on_arrival = sum(dat$on_arrival_test/n_inf),
+    Test_Positive_Day7 = sum(dat$Day7_test/n_inf),
+    Test_Positive_Day14 = sum(dat$Day14_test/n_inf),
+    Test_Positive_Day21 = sum(dat$Day21_test/n_inf),
+    
+    Cum_Positive_pre_departure = sum(dat$cum_Positive_pre_departure/n_inf),
+    Cum_Positive_departure = sum(dat$cum_Positive_departure/n_inf),
+    Cum_Positive_arrival = sum(dat$cum_Positive_arrival/n_inf),
+    Cum_Positive_Day7 = sum(dat$cum_Positive_Day7/n_inf),
+    Cum_Positive_Day14 = sum(dat$cum_Positive_Day14/n_inf),
+    Cum_Positive_Day21 = sum(dat$cum_Positive_Day21/n_inf)
+    
+  )
+  
+  
+  rt
+  
+}
+```
+
+
+```{r Data setting,echo=FALSE}
+smr<-read.csv("~/rCodes/With Travel Volume Data/MCMC & Simulation Result/MCMC Result May-Final.csv")
+
+smr<-smr%>%
+  mutate(Location = ifelse(Location == "GB", "UK", Location))
+
+load("~/rCodes/With Travel Volume Data/MCMC & Simulation Result/Detail Results May-Final.RData")
+
+for (i in 1:nrow(smr)){
+results_new[[i]]$time<-smr$time[i]
+results_new[[i]]$Location<-smr$Location[i]
+}
+#load pre pandemic travel volume data
+PreP_data<-read.csv("~/rCodes/With Travel Volume Data/Travel_volume_adjusted_postpandemic.csv",header = TRUE)
+PreP_data<-PreP_data%>%
+  mutate(Location = ifelse(Location == "GB","UK", Location))
+
+setwd("~/rCodes/With Travel Volume Data")
+# extracted from https://github.com/cmmid/pcr-profile
+p_tn_vec = read.csv("test_sensitivity_uk.csv",
+                    header = TRUE) %>%
+  mutate(days_since_exposure = days_since_peak_viral_load + 5) %>%
+  select(days_since_exposure, fnr_med, fnr_lb,fnr_ub,fnr_sd)
+
+# estimated from https://github.com/ehylau/COVID-19
+incubation_period = read.csv('incubation_period.csv',
+                             header = TRUE,
+                             stringsAsFactors = FALSE) %>%
+  mutate(prob_symptom_onset = ifelse(days_since_exposure <= 14,
+                                     prob_symptom_onset/sum(prob_symptom_onset[1:14]),
+                                     0)) %>%
+  select(days_since_exposure, prob_symptom_onset)
+
+infectious_period = read.csv("nature_med_infectiousness.csv",
+                             header = TRUE,
+                             stringsAsFactors = FALSE) %>%
+  select(days_since_exposure,prob_infectious,cum_prob_infectious)
+
+
+p_tn_vec = left_join(p_tn_vec, infectious_period)
+
+ftn = getFTN(p_tn_vec, infectious_period)
+ftn$cum_prob_infectious[82:86] = 1
+```
+
+
+```{r, Boostrap sample from MCMC results}
+
+#bootsrap sample from MCMC results
+Sample_data = lapply(results_new,function(x){
+                         Sample_data = lapply(1:n_sim, function(xx) {
+                           N=sample(burnin:nrow(x$n),1)
+                           x
+                           Sample_data = tibble(
+                           n_used = x$n[N],
+                           p_i_used = x$p_i[N]/10^4,
+                           Location = x$Location,
+                           time = x$time,
+                           total = PreP_data$volume[PreP_data$Location == x$Location
+                                                    &
+                                                    PreP_data$time == x$time],
+                           n_pre = n_used*max_cap/total,
+                           n_inf = sum(infection = rbinom(n = n_used, size = 1, p = p_i_used)),
+                           n_inf_pre = sum(infection = rbinom(n = n_pre, size = 1, p = p_i_used)),
+                           n_sim = xx)})
+                           Sample_data = do.call("rbind",Sample_data)})
+Sample_data = do.call("rbind",Sample_data)%>%
+  mutate(interaction = paste0(Location,time))
+
+#get observed arrival volume data
+Arrival<-read.csv("~/rCodes/With Travel Volume Data/post_pandemic_volume_adjusted.csv")
+Arrival<-Arrival%>%
+  mutate(Location = ifelse(Location == "GB","UK",Location))
+files <- list.files(path = "~/rCodes/With Travel Volume Data/Data", pattern = "*.csv")
+
+
+Location_list <- lapply(files, read.csv)
+names(Location_list)<-lapply(files,function(n){
+  gsub(".csv","",n)
+})
+
+
+
+for (i in 1:length(Location_list)){
+  Location_list[[i]]<-Location_list[[i]]%>%
+    filter(Timeseries %in% TimeFrame)%>%
+    mutate(Location = names(Location_list)[i])%>%
+    mutate(Arrivals = Arrival[Arrival$Location==Location,"Arrivals"],
+           Total = Arrival[Arrival$Location==Location,"Total"],
+           arrive_rate = Arrival[Arrival$Location==Location,"arrive_rate"],
+           month = as.Date(paste0(Timeseries, "01"), format = "%Y%m%d"),
+           arrivals = as.numeric(cut (Arrivals,c(0,100,200,400,1000,max(Arrivals)),
+                                             labels = c(100,200,400,1000,4000),include.lowest = TRUE)),
+           )
+}
+location_case<-do.call("rbind",Location_list)
+
+#Filter out those with country-months with low importation cases and arrivals
+Case_month<-location_case%>%
+  filter(Cases>5,Arrivals>300)%>%
+  rename(time = Timeseries)%>%
+  mutate(Interaction = paste0(Location,time))
+
+
+volincidence<-smr%>%
+  filter(Arrivals>300)%>%
+  select(Location,time,n_50,p_i_50)%>%
+  left_join(.,Case_month,by = c("time","Location"))%>%
+  mutate(estimation = n_50*p_i_50/1000)
+
+Sample_data<-Sample_data%>%
+  filter(interaction %in% Case_month$Interaction)
+```
+
+Doing Simulation: based on scenarios
+```{r}
+do_simulation <- function(data, scenario_set) {
+  sim <- by(data, 1:nrow(data), function(x) {
+if (scenario_set %in% c("A","C")) {
+      n_used <- x$n_pre
+      p_i_used <- x$p_i_used
+      n_inf <- x$n_inf_pre
+    } else {
+      n_used <- x$n_used
+      p_i_used <- x$p_i_used
+      n_inf <- x$n_inf
+    }
+    
+    sim <- switch(
+      scenario_set,
+      "A" = sampleInfection_base(n = n_used,
+                                 p_i = p_i_used, n_inf = n_inf,
+                                 T_max = 14,
+                                 ftn,
+                                 incubation_period,
+                                 inf_ref = inf_ref,
+                                 direction = et,
+                                 time = x$time),
+      "B" = sampleInfection(n = n_used,
+                            p_i = p_i_used, n_inf = n_inf,
+                            T_max = 14,
+                            ftn,
+                            incubation_period,
+                            inf_ref = inf_ref,
+                            direction = et,
+                            time = x$time),
+      "C" = sampleInfection(n = n_used,
+                            p_i = p_i_used, n_inf = n_inf,
+                            T_max = 14,
+                            ftn,
+                            incubation_period,
+                            inf_ref = inf_ref,
+                            direction = et,
+                            time = x$time),
+      "D" = sampleInfection_D(n = n_used,
+                              p_i = p_i_used, n_inf = n_inf,
+                              T_max = 14,
+                              ftn,
+                              incubation_period,
+                              inf_ref = inf_ref,
+                              direction = et,
+                              time = x$time),
+      "E" = sampleInfection_E(n = n_used,
+                              p_i = p_i_used, n_inf = n_inf,
+                              T_max = 14,
+                              ftn,
+                              incubation_period,
+                              inf_ref = inf_ref,
+                              direction = et,
+                              time = x$time)
+    )%>%
+    mutate(
+      Arrivals = n_travel - n_inf + n_boarding,
+      Positives = n_boarding - n_tn_on_arrival,
+      Location = x$Location,
+      time = x$time
+    )
+    
+    sim
+  })
+  
+  sim <- do.call("rbind", sim) %>%
+    #filter(time %in% TimeFrame) %>%
+    mutate(scenario = paste("Scenario", scenario_set, sep = " "))
+  
+  sim
+}
+
+scenario_sets <- c("A", "B", "C", "D", "E")
+
+simulation_results <- lapply(scenario_sets, function(scenario_set) {
+  sim <- do_simulation(data = Sample_data, scenario_set = scenario_set)
+  sim
+})
+
+
+sim_A <- simulation_results[[1]]
+sim_B <- simulation_results[[2]]
+sim_C <- simulation_results[[3]]
+sim_D <- simulation_results[[4]]
+sim_E <- simulation_results[[5]]
+```
+
+Doing Simulation: Based on independent, marginal and cumulative.
+```{r}
+
+
+sim = lapply(c("increasing","decreasing","uniform"),function(et){
+  sim <- lapply(seq_along(input$n_used), function(i) {
+    n_used <- input$n_used[i]
+    p_i_used <- input$p_i_used[i]
+    n_inf<-input$n_inf[i]
+    sim = lapply(1:n_sim, function(xx) {
+    sim = sampleInfection_independent(n = n_used, 
+                          p_i = p_i_used,
+                          n_inf = n_inf,
+                          T_max = 14,
+                          ftn, 
+                          incubation_period,
+                          inf_ref = inf_ref,
+                          direction = et) %>%
+      mutate(Exposure_time = et,
+             n_sim = xx,
+             n = n_used,
+             p_i = p_i_used,
+             input = paste(n,p_i,sep = ", "))
+    
+    })
+  
+  
+  sim=do.call("rbind",sim)
+  
+  })
+  
+  sim=do.call("rbind",sim)
+  
+})%>% 
+  do.call("rbind", .)
+
+sim_sum = lapply(c("increasing","decreasing","uniform"),function(et){
+  sim <- lapply(seq_along(input$n_used), function(i) {
+    n_used <- input$n_used[i]
+    p_i_used <- input$p_i_used[i]
+    n_inf<-input$n_inf[i]
+    sim = lapply(1:n_sim, function(xx) {
+      sim = sampleInfection_marginal(n = n_used, 
+                                        p_i = p_i_used,
+                                        n_inf = n_inf,
+                                        T_max = 14,
+                                        ftn, 
+                                        incubation_period,
+                                        inf_ref = inf_ref,
+                                        direction = et) %>%
+        mutate(Exposure_time = et,
+               n_sim = xx,
+               n = n_used,
+               p_i = p_i_used,
+               input = paste(n,p_i,sep = ", "))
+      
+    })
+    
+    
+    sim=do.call("rbind",sim)
+    
+  })
+  
+  sim=do.call("rbind",sim)
+  
+})%>% 
+  do.call("rbind", .)
